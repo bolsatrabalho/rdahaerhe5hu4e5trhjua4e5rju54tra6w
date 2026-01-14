@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Sistema de Frequência</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #f4f4f4;
+  padding: 20px;
+}
+h2 { margin-bottom: 10px; }
+button {
+  padding: 6px 12px;
+  margin: 4px;
+  cursor: pointer;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+th, td {
+  border: 1px solid #ccc;
+  padding: 6px;
+  text-align: center;
+}
+th { background: #eee; }
+input, select { width: 100%; }
+.admin-row { background: #e8f5e9; }
+</style>
+</head>
+
+<body>
+
+<h2 id="titulo"></h2>
+
+<button id="btnAdd" onclick="adicionarBolsista()">➕ Adicionar bolsista</button>
+<button onclick="salvarLocal()">💾 Salvar</button>
+<button onclick="enviarPlanilha()">📤 Enviar planilha</button>
+
+<br><br>
+
+<table>
+<thead>
+<tr>
+  <th>Campus</th>
+  <th>Nome</th>
+  <th>Matrícula</th>
+  <th>Setor</th>
+  <th>Início</th>
+  <th>Fim</th>
+  <th>Email Coordenador</th>
+  <th>Justificativa</th>
+  <th>Arquivo</th>
+  <th>Ações</th>
+</tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
+
+<script>
+/* ================= CONFIG ================= */
+const EMAIL_ADMIN = "bolsatrabalho@prex.uespi.br";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxr-coCfQplyJBH6DKyXb0cHXAb8s3JzF2IQGLfAhNzotLxvmWQghX4-q55Vzj79rGjww/exec";
+
+/* ================= LOGIN ================= */
+const emailUsuario = (sessionStorage.getItem("coordenadorLogado") || "").trim().toLowerCase();
+if (!emailUsuario) {
+  alert("Acesso inválido");
+  location.href = "index.html";
+}
+const isAdmin = emailUsuario === EMAIL_ADMIN;
+
+/* ================= DADOS ================= */
+let bolsistas = JSON.parse(localStorage.getItem("bolsistas")) || [];
+
+/* ================= INIT ================= */
+document.getElementById("titulo").innerText =
+  isAdmin ? "Administrador" : "Coordenador: " + emailUsuario;
+
+if (!isAdmin) document.getElementById("btnAdd").style.display = "none";
+
+renderTabela();
+
+/* ================= FUNÇÕES ================= */
+
+function adicionarBolsista() {
+  bolsistas.push({
+    campus:"",
+    nome:"",
+    matricula:"",
+    setor:"",
+    inicio:"",
+    fim:"",
+    emailCoordenador:"",
+    justificativa:"",
+    arquivoBase64:"",
+    nomeArquivo:""
+  });
+  renderTabela();
+}
+
+function removerBolsista(index) {
+  if (!confirm("Remover este bolsista?")) return;
+  bolsistas.splice(index, 1);
+  salvarLocal(false);
+  renderTabela();
+}
+
+function renderTabela() {
+  const tbody = document.getElementById("tbody");
+  tbody.innerHTML = "";
+
+  bolsistas.forEach((b, i) => {
+    if (!isAdmin && b.emailCoordenador.trim().toLowerCase() !== emailUsuario) return;
+
+    const tr = document.createElement("tr");
+    if (isAdmin) tr.classList.add("admin-row");
+
+    tr.innerHTML = `
+      <td><input value="${b.campus}" ${!isAdmin && "disabled"}></td>
+      <td><input value="${b.nome}" ${!isAdmin && "disabled"}></td>
+      <td><input value="${b.matricula}" ${!isAdmin && "disabled"}></td>
+      <td><input value="${b.setor}" ${!isAdmin && "disabled"}></td>
+      <td><input type="date" value="${b.inicio}" ${!isAdmin && "disabled"}></td>
+      <td><input type="date" value="${b.fim}" ${!isAdmin && "disabled"}></td>
+      <td><input value="${b.emailCoordenador}" ${!isAdmin && "disabled"}></td>
+      <td><input value="${b.justificativa || ""}"></td>
+      <td><input type="file" onchange="lerArquivo(event, ${i})"></td>
+      <td>${isAdmin ? `<button onclick="removerBolsista(${i})">❌</button>` : ""}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function salvarLocal(msg = true) {
+  // valida matrícula duplicada
+  const matriculas = bolsistas.map(b => b.matricula.trim()).filter(m => m);
+  const duplicada = matriculas.find((m, i) => matriculas.indexOf(m) !== i);
+  if (duplicada) {
+    alert("Matrícula duplicada: " + duplicada);
+    return;
+  }
+
+  const linhas = document.querySelectorAll("#tbody tr");
+  let idx = 0;
+
+  bolsistas.forEach(b => {
+    if (!isAdmin && b.emailCoordenador.trim().toLowerCase() !== emailUsuario) return;
+
+    const inputs = linhas[idx].querySelectorAll("input");
+    [
+      b.campus,
+      b.nome,
+      b.matricula,
+      b.setor,
+      b.inicio,
+      b.fim,
+      b.emailCoordenador,
+      b.justificativa
+    ] = [...inputs].slice(0, 8).map(i => i.value.trim());
+
+    idx++;
+  });
+
+  localStorage.setItem("bolsistas", JSON.stringify(bolsistas));
+  if (msg) alert("Dados salvos com sucesso");
+}
+
+function lerArquivo(e, index) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  if (file.size > 10 * 1024 * 1024) {
+    alert("Arquivo maior que 10MB");
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    bolsistas[index].arquivoBase64 = reader.result.split(",")[1];
+    bolsistas[index].nomeArquivo = file.name;
+  };
+  reader.readAsDataURL(file);
+}
+
+function enviarPlanilha() {
+  salvarLocal(false);
+
+  const envio = bolsistas.filter(b =>
+    isAdmin || b.emailCoordenador.trim().toLowerCase() === emailUsuario
+  );
+
+  Promise.all(envio.map(b =>
+    fetch(SCRIPT_URL, {
+      method: "POST",
+      body: JSON.stringify(b)
+    })
+  ))
+  .then(() => alert("Dados enviados com sucesso"))
+  .catch(() => alert("Erro de conexão com o servidor"));
+}
+</script>
+
+</body>
+</html>
